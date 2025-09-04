@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,54 +23,36 @@ import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import Slider from '@react-native-community/slider';
 import Button from '../components/Button';
 import Icon from '../components/Icon';
+import PresetButton from '../components/PresetButton';
+import TabSelector, { type Tab } from '../components/TabSelector';
+import LoadingOverlay from '../components/LoadingOverlay';
 import { commonStyles, buttonStyles, colors } from '../styles/commonStyles';
+import { socialPresets, commonResolutions, cropRatios } from '../constants/imagePresets';
+import type { ImageInfo, EditHistory, ActiveTab, ResizeMode, CropMode, ImageFormat } from '../types/image';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
-interface ImageInfo {
-  uri: string;
-  width: number;
-  height: number;
-  format: 'png' | 'jpeg';
-}
-
-interface EditHistory {
-  id: string;
-  operation: string;
-  uri: string;
-  timestamp: number;
-}
-
-const socialPresets = [
-  { name: 'Instagram Square', width: 1080, height: 1080 },
-  { name: 'Instagram Story', width: 1080, height: 1920 },
-  { name: 'Facebook Cover', width: 1200, height: 630 },
-  { name: 'YouTube Thumbnail', width: 1280, height: 720 },
-  { name: 'LinkedIn Post', width: 1200, height: 627 },
-  { name: 'Twitter Header', width: 1500, height: 500 },
+const mainTabs: Tab[] = [
+  { id: 'resize', title: 'Resize', icon: 'resize-outline' },
+  { id: 'crop', title: 'Crop', icon: 'crop-outline' },
+  { id: 'convert', title: 'Convert', icon: 'swap-horizontal-outline' },
 ];
 
-const commonResolutions = [
-  { name: 'HD', width: 1920, height: 1080 },
-  { name: '4K', width: 3840, height: 2160 },
-  { name: 'Square HD', width: 1080, height: 1080 },
-  { name: 'Portrait HD', width: 1080, height: 1920 },
+const resizeModeTabs: Tab[] = [
+  { id: 'pixels', title: 'Pixels' },
+  { id: 'percent', title: 'Percent' },
 ];
 
-const cropRatios = [
-  { name: 'Free', ratio: null },
-  { name: '1:1', ratio: 1 },
-  { name: '4:3', ratio: 4/3 },
-  { name: '16:9', ratio: 16/9 },
-  { name: '3:2', ratio: 3/2 },
-  { name: '9:16', ratio: 9/16 },
+const cropModeTabs: Tab[] = [
+  { id: 'rectangle', title: 'Rectangle' },
+  { id: 'circle', title: 'Circle' },
 ];
 
 export default function EditorScreen() {
   const { imageUri, mode } = useLocalSearchParams<{ imageUri: string; mode?: string }>();
   const [imageInfo, setImageInfo] = useState<ImageInfo | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'resize' | 'crop' | 'convert'>('resize');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('resize');
   const [editHistory, setEditHistory] = useState<EditHistory[]>([]);
   const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
   
@@ -78,7 +60,7 @@ export default function EditorScreen() {
   const [newWidth, setNewWidth] = useState('');
   const [newHeight, setNewHeight] = useState('');
   const [aspectRatioLocked, setAspectRatioLocked] = useState(true);
-  const [resizeMode, setResizeMode] = useState<'pixels' | 'percent'>('pixels');
+  const [resizeMode, setResizeMode] = useState<ResizeMode>('pixels');
   const [resizePercent, setResizePercent] = useState(100);
   
   // Crop states
@@ -88,10 +70,10 @@ export default function EditorScreen() {
   const [cropHeight, setCropHeight] = useState(0);
   const [selectedCropRatio, setSelectedCropRatio] = useState(cropRatios[0]);
   const [showGrid, setShowGrid] = useState(true);
-  const [cropMode, setCropMode] = useState<'rectangle' | 'circle'>('rectangle');
+  const [cropMode, setCropMode] = useState<CropMode>('rectangle');
   
   // Convert states
-  const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg'>('jpeg');
+  const [outputFormat, setOutputFormat] = useState<ImageFormat>('jpeg');
   const [jpegQuality, setJpegQuality] = useState(90);
   const [backgroundColor, setBackgroundColor] = useState('#FFFFFF');
   
@@ -99,9 +81,19 @@ export default function EditorScreen() {
   const [imageScale, setImageScale] = useState(1);
   const [imageTranslateX, setImageTranslateX] = useState(0);
   const [imageTranslateY, setImageTranslateY] = useState(0);
+  const [imageLoading, setImageLoading] = useState(false);
   
   const bottomSheetRef = useRef<BottomSheet>(null);
   const originalAspectRatio = useRef<number>(1);
+
+  const getProcessingMessage = () => {
+    switch (activeTab) {
+      case 'resize': return 'Resizing image...';
+      case 'crop': return 'Cropping image...';
+      case 'convert': return 'Converting image...';
+      default: return 'Processing image...';
+    }
+  };
 
   useEffect(() => {
     if (imageUri) {
@@ -393,24 +385,6 @@ export default function EditorScreen() {
     }
   };
 
-  const renderTabButton = (tab: 'resize' | 'crop' | 'convert', icon: string, title: string) => (
-    <TouchableOpacity
-      style={[commonStyles.tab, activeTab === tab && commonStyles.tabActive]}
-      onPress={() => {
-        setActiveTab(tab);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }}
-    >
-      <Icon name={icon as any} size={20} color={activeTab === tab ? colors.white : colors.textSecondary} />
-      <Text style={[
-        commonStyles.tabText,
-        activeTab === tab && commonStyles.tabTextActive,
-        { marginTop: 4 }
-      ]}>
-        {title}
-      </Text>
-    </TouchableOpacity>
-  );
 
   const renderResizeContent = () => (
     <View>
@@ -419,24 +393,12 @@ export default function EditorScreen() {
       </Text>
       
       {/* Mode Toggle */}
-      <View style={[commonStyles.tabContainer, { marginBottom: 20 }]}>
-        <TouchableOpacity
-          style={[commonStyles.tab, resizeMode === 'pixels' && commonStyles.tabActive]}
-          onPress={() => setResizeMode('pixels')}
-        >
-          <Text style={[commonStyles.tabText, resizeMode === 'pixels' && commonStyles.tabTextActive]}>
-            Pixels
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[commonStyles.tab, resizeMode === 'percent' && commonStyles.tabActive]}
-          onPress={() => setResizeMode('percent')}
-        >
-          <Text style={[commonStyles.tabText, resizeMode === 'percent' && commonStyles.tabTextActive]}>
-            Percent
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <TabSelector
+        tabs={resizeModeTabs}
+        activeTab={resizeMode}
+        onTabChange={handleResizeModeChange}
+        style={{ marginBottom: 20 }}
+      />
 
       {resizeMode === 'pixels' ? (
         <View>
@@ -501,32 +463,24 @@ export default function EditorScreen() {
           <Text style={[commonStyles.text, { textAlign: 'left', marginBottom: 12 }]}>Social Media:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
             {socialPresets.map((preset, index) => (
-              <TouchableOpacity
+              <PresetButton
                 key={index}
-                style={commonStyles.presetButton}
-                onPress={() => applyPreset(preset)}
-              >
-                <Text style={commonStyles.presetButtonText}>{preset.name}</Text>
-                <Text style={[commonStyles.presetButtonText, { fontSize: 10, opacity: 0.7 }]}>
-                  {preset.width}×{preset.height}
-                </Text>
-              </TouchableOpacity>
+                title={preset.name}
+                subtitle={`${preset.width}×${preset.height}`}
+                onPress={() => handlePresetPress(preset)}
+              />
             ))}
           </ScrollView>
 
           <Text style={[commonStyles.text, { textAlign: 'left', marginBottom: 12 }]}>Common Sizes:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
             {commonResolutions.map((preset, index) => (
-              <TouchableOpacity
+              <PresetButton
                 key={index}
-                style={commonStyles.presetButton}
-                onPress={() => applyPreset(preset)}
-              >
-                <Text style={commonStyles.presetButtonText}>{preset.name}</Text>
-                <Text style={[commonStyles.presetButtonText, { fontSize: 10, opacity: 0.7 }]}>
-                  {preset.width}×{preset.height}
-                </Text>
-              </TouchableOpacity>
+                title={preset.name}
+                subtitle={`${preset.width}×${preset.height}`}
+                onPress={() => handlePresetPress(preset)}
+              />
             ))}
           </ScrollView>
         </View>
@@ -571,44 +525,23 @@ export default function EditorScreen() {
       </Text>
 
       {/* Crop Mode */}
-      <View style={[commonStyles.tabContainer, { marginBottom: 20 }]}>
-        <TouchableOpacity
-          style={[commonStyles.tab, cropMode === 'rectangle' && commonStyles.tabActive]}
-          onPress={() => setCropMode('rectangle')}
-        >
-          <Text style={[commonStyles.tabText, cropMode === 'rectangle' && commonStyles.tabTextActive]}>
-            Rectangle
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[commonStyles.tab, cropMode === 'circle' && commonStyles.tabActive]}
-          onPress={() => setCropMode('circle')}
-        >
-          <Text style={[commonStyles.tabText, cropMode === 'circle' && commonStyles.tabTextActive]}>
-            Circle
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <TabSelector
+        tabs={cropModeTabs}
+        activeTab={cropMode}
+        onTabChange={handleCropModeChange}
+        style={{ marginBottom: 20 }}
+      />
 
       {/* Aspect Ratios */}
       <Text style={[commonStyles.text, { textAlign: 'left', marginBottom: 12 }]}>Aspect Ratio:</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 20 }}>
         {cropRatios.map((ratio, index) => (
-          <TouchableOpacity
+          <PresetButton
             key={index}
-            style={[
-              commonStyles.presetButton,
-              selectedCropRatio.name === ratio.name && commonStyles.presetButtonActive
-            ]}
-            onPress={() => applyCropRatio(ratio)}
-          >
-            <Text style={[
-              commonStyles.presetButtonText,
-              selectedCropRatio.name === ratio.name && commonStyles.presetButtonTextActive
-            ]}>
-              {ratio.name}
-            </Text>
-          </TouchableOpacity>
+            title={ratio.name}
+            isActive={selectedCropRatio.name === ratio.name}
+            onPress={() => handleCropRatioPress(ratio)}
+          />
         ))}
       </ScrollView>
 
@@ -824,8 +757,40 @@ export default function EditorScreen() {
     );
   }
 
-  const displayWidth = screenWidth - 48;
-  const displayHeight = (displayWidth * imageInfo.height) / imageInfo.width;
+  // Memoize expensive calculations
+  const { displayWidth, displayHeight } = useMemo(() => {
+    const width = screenWidth - 48;
+    const height = imageInfo ? (width * imageInfo.height) / imageInfo.width : 0;
+    return { displayWidth: width, displayHeight: height };
+  }, [imageInfo?.width, imageInfo?.height]);
+
+  const estimatedFileSize = useMemo(() => {
+    return Math.round(displayWidth * displayHeight / 1000);
+  }, [displayWidth, displayHeight]);
+
+  const canUndo = useMemo(() => currentHistoryIndex > 0, [currentHistoryIndex]);
+  const canRedo = useMemo(() => currentHistoryIndex < editHistory.length - 1, [currentHistoryIndex, editHistory.length]);
+
+  // Memoize event handlers
+  const handleTabChange = useCallback((tabId: string) => {
+    setActiveTab(tabId as ActiveTab);
+  }, []);
+
+  const handleResizeModeChange = useCallback((tabId: string) => {
+    setResizeMode(tabId as ResizeMode);
+  }, []);
+
+  const handleCropModeChange = useCallback((tabId: string) => {
+    setCropMode(tabId as CropMode);
+  }, []);
+
+  const handlePresetPress = useCallback((preset: any) => {
+    applyPreset(preset);
+  }, [newWidth, newHeight, aspectRatioLocked]); // Include dependencies for applyPreset
+
+  const handleCropRatioPress = useCallback((ratio: any) => {
+    applyCropRatio(ratio);
+  }, [imageInfo, cropWidth, cropHeight]); // Include dependencies for applyCropRatio
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -839,15 +804,15 @@ export default function EditorScreen() {
           <View style={{ flexDirection: 'row' }}>
             <TouchableOpacity 
               onPress={undo}
-              disabled={currentHistoryIndex <= 0}
-              style={{ marginRight: 16, opacity: currentHistoryIndex <= 0 ? 0.3 : 1 }}
+              disabled={!canUndo}
+              style={{ marginRight: 16, opacity: canUndo ? 1 : 0.3 }}
             >
               <Icon name="arrow-undo" size={24} color={colors.text} />
             </TouchableOpacity>
             <TouchableOpacity 
               onPress={redo}
-              disabled={currentHistoryIndex >= editHistory.length - 1}
-              style={{ opacity: currentHistoryIndex >= editHistory.length - 1 ? 0.3 : 1 }}
+              disabled={!canRedo}
+              style={{ opacity: canRedo ? 1 : 0.3 }}
             >
               <Icon name="arrow-redo" size={24} color={colors.text} />
             </TouchableOpacity>
@@ -857,14 +822,33 @@ export default function EditorScreen() {
         {/* Image Display */}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 24 }}>
           <View style={[commonStyles.card, { alignItems: 'center' }]}>
-            <Image
-              source={{ uri: imageInfo.uri }}
-              style={{
+            {imageLoading && (
+              <View style={{
                 width: displayWidth,
                 height: displayHeight,
                 borderRadius: 12,
+                backgroundColor: colors.surface,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}>
+                <Icon name="image-outline" size={40} color={colors.textSecondary} />
+                <Text style={[commonStyles.textSecondary, { marginTop: 8 }]}>Loading...</Text>
+              </View>
+            )}
+            <Image
+              source={{ 
+                uri: imageInfo.uri,
+                cache: 'force-cache', // Optimize caching
               }}
+              style={[{
+                width: displayWidth,
+                height: displayHeight,
+                borderRadius: 12,
+              }, imageLoading && { opacity: 0 }]}
               resizeMode="contain"
+              onLoadStart={() => setImageLoading(true)}
+              onLoad={() => setImageLoading(false)}
+              onError={() => setImageLoading(false)}
             />
             
             {/* Image Info */}
@@ -873,7 +857,7 @@ export default function EditorScreen() {
                 {imageInfo.width} × {imageInfo.height} px
               </Text>
               <Text style={commonStyles.textSecondary}>
-                {imageInfo.format.toUpperCase()} • {Math.round(displayWidth * displayHeight / 1000)}KB (est.)
+                {imageInfo.format.toUpperCase()} • {estimatedFileSize}KB (est.)
               </Text>
             </View>
           </View>
@@ -902,11 +886,12 @@ export default function EditorScreen() {
         >
           <BottomSheetView style={commonStyles.bottomSheetContent}>
             {/* Tabs */}
-            <View style={commonStyles.tabContainer}>
-              {renderTabButton('resize', 'resize-outline', 'Resize')}
-              {renderTabButton('crop', 'crop-outline', 'Crop')}
-              {renderTabButton('convert', 'swap-horizontal-outline', 'Convert')}
-            </View>
+            <TabSelector
+              tabs={mainTabs}
+              activeTab={activeTab}
+              onTabChange={handleTabChange}
+              showIcons={true}
+            />
 
             {/* Content */}
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -916,6 +901,11 @@ export default function EditorScreen() {
             </ScrollView>
           </BottomSheetView>
         </BottomSheet>
+        
+        <LoadingOverlay 
+          visible={isProcessing} 
+          message={getProcessingMessage()}
+        />
       </SafeAreaView>
     </GestureHandlerRootView>
   );

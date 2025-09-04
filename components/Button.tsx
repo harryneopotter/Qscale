@@ -1,5 +1,6 @@
 
-import { Text, TouchableOpacity, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import React, { useRef } from 'react';
+import { Text, TouchableOpacity, StyleSheet, ViewStyle, TextStyle, Animated } from 'react-native';
 import { colors } from '../styles/commonStyles';
 
 interface ButtonProps {
@@ -33,14 +34,50 @@ const styles = StyleSheet.create({
   },
 });
 
-export default function Button({ text, onPress, style, textStyle, disabled = false }: ButtonProps) {
+const Button = React.memo<ButtonProps>(({ text, onPress, style, textStyle, disabled = false }) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 10,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 300,
+      friction: 10,
+    }).start();
+  };
+
   return (
-    <TouchableOpacity 
-      style={[styles.button, style, disabled && styles.disabled]} 
+    <TouchableOpacity
+      testID="button"
       onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
       disabled={disabled}
+      activeOpacity={1}
     >
-      <Text style={[styles.text, textStyle]}>{text}</Text>
+      <Animated.View
+        style={[
+          styles.button,
+          style,
+          disabled && styles.disabled,
+          { transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        <Text style={[styles.text, textStyle]}>{text}</Text>
+      </Animated.View>
     </TouchableOpacity>
   );
-}
+});
+
+Button.displayName = 'Button';
+
+export default Button;

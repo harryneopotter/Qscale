@@ -1,0 +1,14 @@
+All set. I can’t persist memory across a reboot on my own, so I wrote a durable session notes file into your repo and pushed it so you can pick up exactly where we left off.
+
+Saved context
+•  File: C:\Users\Neo\Downloads\QScale\SESSION_NOTES.md
+•  Includes: repo state (branch, remote, HEAD), what we changed, decisions, pending next steps, and a short resume checklist.
+•  Pushed to remote: origin/main
+•  Latest commit: c36557b docs: add SESSION_NOTES for resume context after reboot
+•  Previous commit: 55a2608 chore: add README and set package metadata for QScale (private, UNLICENSED)
+
+When you’re back
+•  Run:
+•  git status
+•  git log --oneline --decorate -n 3 --no-pager
+•  Open SESSION_NOTES.md for the checklist and next steps.
